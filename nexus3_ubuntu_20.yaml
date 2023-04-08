@@ -11,5 +11,5 @@
     nexus_group: nexus
     nexus_home: /opt/nexus
     nexus_data: /var/nexus-data
-    nexus_admin_password: Subatomizat12345?
-    nexus_port: 8080
+    nexus_admin_password: admin
+    nexus_port: 8081
