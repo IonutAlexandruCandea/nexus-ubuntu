@@ -1,0 +1,43 @@
+- name: Stop Nexus service
+  systemd:
+    name: nexus
+    state: stopped
+
+- name: Remove Nexus installation directory
+  ansible.builtin.file:
+    path: "{{ nexus_home }}"
+    state: absent
+
+- name: Remove Nexus data
+  ansible.builtin.file:
+    path: "{{ nexus_data }}"
+    state: absent
+
+- name: Remove Nexus user
+  ansible.builtin.user:
+    name: "{{ nexus_user }}"
+    state: absent
+
+- name: Remove Nexus group
+  ansible.builtin.group:
+    name: "{{ nexus_group }}"
+    state: absent
+
+- name: Remove Nexus service file
+  ansible.builtin.file:
+    path: /etc/systemd/system/nexus.service
+    state: absent
+
+- name: Reload systemd configuration
+  command: systemctl daemon-reload
+
+- name: Check if Nexus service is uninstalled
+  shell: systemctl status nexus.service
+  ignore_errors: true
+  register: nexus_service_status
+
+- name: Fail if Nexus service is still installed
+  fail:
+    msg: "Nexus uninstall failed!"
+  when: nexus_service_status.rc == 0
+
