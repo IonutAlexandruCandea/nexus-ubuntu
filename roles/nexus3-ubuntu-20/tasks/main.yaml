@@ -119,15 +119,20 @@
 
 - name: Setup initial admin password
   command: "wget --auth-no-challenge --http-user=admin --http-password={{ nexus_default_admin_password }} --header='Content-Type: text/plain' --body-data={{ nexus_admin_password }} --method PUT http://{{ inventory_hostname }}:8081/service/rest/internal/ui/onboarding/change-admin-password"
-    
+
+- name: Setup nexus properties
+  template:
+    src: templates/nexus.properties.j2
+    dest: /opt/nexus/sonatype-work/nexus3/etc/nexus.properties
+
 - name: Restart Nexus service
   systemd:
     name: nexus
     state: restarted
 
-- name: Wait for Nexus to start
+- name: Check if the new port was setup
   wait_for:
-    port: 8081
+    port: "{{ nexus_port }}"
     delay: 10
     timeout: 300
   register: nexus_started
