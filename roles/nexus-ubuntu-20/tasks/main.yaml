@@ -1,0 +1,142 @@
+---
+- name: Check for Java
+  command: java -version
+  register: java_version
+  ignore_errors: true
+  changed_when: false
+
+- name: Display Java Version
+  debug:
+    var: java_version.stdout_lines
+  when: java_version.rc == 0
+
+- name: Fail if Java is not installed
+  fail:
+    msg: "Java is not installed on the target system! Please install Java before proceeding!"
+  when: java_version.rc != 0
+
+- name: Install required packages
+  apt:
+    name:
+      - curl
+      - wget
+    state: present
+
+- name: Create nexus group
+  ansible.builtin.group:
+    name: "{{ nexus_group }}"
+    state: present
+
+- name: Create nexus user
+  ansible.builtin.user:
+    name: "{{ nexus_user }}"
+    group: "{{ nexus_group }}"
+    system: yes
+    shell: /bin/false
+    create_home: no
+    state: present
+
+- name: Download Nexus archive
+  get_url:
+    url: "https://download.sonatype.com/nexus/3/nexus-{{ nexus_version }}-unix.tar.gz"
+    dest: "/tmp/nexus-{{ nexus_version }}-unix.tar.gz"
+
+- name: Create {{ nexus_home }}
+  ansible.builtin.file:
+    path: "{{ nexus_home }}"
+    state: directory
+    owner: "{{ nexus_user }}"
+    group: "{{ nexus_group }}"
+    mode: 0750
+
+- name: Extract Nexus archive
+  ansible.builtin.unarchive:
+    src: "/tmp/nexus-{{ nexus_version }}-unix.tar.gz"
+    dest: "{{ nexus_home }}"
+    remote_src: yes
+    owner: "{{ nexus_user }}"
+    group: "{{ nexus_group }}"
+    creates: "{{ nexus_home }}/nexus-{{ nexus_version }}"
+  register: nexus_extracted
+
+- name: Create a symlink to the Nexus installation directory
+  ansible.builtin.file:
+    src: "{{ nexus_home }}/nexus-{{ nexus_version }}"
+    dest: "{{ nexus_home }}/nexus"
+    state: link
+    owner: "{{ nexus_user }}"
+    group: "{{ nexus_group }}"
+  when: nexus_extracted.changed
+
+- name: Create Nexus data directory
+  ansible.builtin.file:
+    path: "{{ nexus_data }}"
+    state: directory
+    owner: "{{ nexus_user }}"
+    group: "{{ nexus_group }}"
+    mode: 0750
+
+- name: Configure Nexus service
+  ansible.builtin.template:
+    src: nexus.service.j2
+    dest: /etc/systemd/system/nexus.service
+    mode: 0644
+  register: nexus_service_file
+
+- name: Reload systemd configuration
+  command: systemctl daemon-reload
+  when: nexus_service_file.changed
+
+- name: Set ownership of /opt/nexus/sonatype-work directory
+  ansible.builtin.file:
+    path: /opt/nexus/sonatype-work
+    owner: nexus
+    group: nexus
+    recurse: yes
+    state: directory
+
+- name: Enable and start Nexus service
+  systemd:
+    name: nexus
+    state: started
+    enabled: yes
+
+- name: Wait for Nexus to start
+  wait_for:
+    port: 8081
+    delay: 10
+    timeout: 300
+
+- name: Get default admin password
+  slurp:
+    src: "{{ nexus_home }}/sonatype-work/nexus3/admin.password"
+  register: nexus_default_admin_password
+
+- name: Set default admin password as a fact
+  set_fact:
+    nexus_default_admin_password: "{{ nexus_default_admin_password.content | b64decode }}"
+  when: nexus_default_admin_password.content is defined
+
+- name: Setup initial admin password
+  command: "wget --auth-no-challenge --http-user=admin --http-password={{ nexus_default_admin_password }} --header='Content-Type: text/plain' --body-data={{ nexus_admin_password }} --method PUT http://{{ inventory_hostname }}:8081/service/rest/internal/ui/onboarding/change-admin-password"
+    
+- name: Restart Nexus service
+  systemd:
+    name: nexus
+    state: restarted
+
+- name: Wait for Nexus to start
+  wait_for:
+    port: 8081
+    delay: 10
+    timeout: 300
+  register: nexus_started
+
+- name: Nexus started successfully
+  debug:
+    msg: "Nexus started successfully"
+  when: nexus_started.state
+
+
+
+
